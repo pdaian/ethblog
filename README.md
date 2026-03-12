@@ -35,11 +35,11 @@ We provide a Github Pages-based portal for ethblog. You can view our example blo
 
 To self-host, copy the index.html and ethblog.js files to any HTTPS-enabled remote web server. You now have your own portal into any ethblog. Simply load index.html with the URL parameter `?blog=[eth address]` as a parameter to load that blog.
 
-#### Using web3:// (unformatted)
+#### Using direct RPC reads (unformatted)
 
-You can retreive unformatted posts directly from the gateway using the web3:// URL standard addressing eth mainnet. 
+You can retrieve unformatted posts directly from Ethereum with `eth_call` against the contract on mainnet.
 
-e.g. web3://0x41fa80b3d33a308fb46609c6c09608ed7f4e05c0/getPost/0, or through a centralized gateway, https://0x41fa80b3d33a308fb46609c6c09608ed7f4e05c0.w3eth.io/getPost/0
+For example, call `getPost(0)` on `0x41fa80b3d33a308fb46609c6c09608ed7f4e05c0` with your preferred Ethereum RPC provider, or use a browser wallet and the included portal which now falls back to a standard JSON-RPC endpoint instead of the old `w3eth.io` gateway.
 
 #### Using etherscan (unformatted)
 
@@ -96,4 +96,3 @@ This project is licensed under the GNU GPLv3 License - see the LICENSE.md file f
 ## Acknowledgments
 
 thanks to v for creating eth, and for reminding us all that. the ticker is eth
-

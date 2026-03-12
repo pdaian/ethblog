@@ -1,7 +1,7 @@
 // ethblog javascript library -- designed to be HUMAN READABLE and use 0 JAVASCRIPT OR WEB3 LIBRARIES
 
-// this is the only config item; centralized fallback node to use, default w3eth.io
-CENTRALIZED_NODE = "w3eth.io";
+// public JSON-RPC fallback used when no injected wallet is available
+RPC_URL = "https://ethereum-rpc.publicnode.com";
 CHAIN_ID = "0x1"; // switch this if you want to provide a frontend to a chain that isn't eth mainnet
 
 var body_html = "";
@@ -60,7 +60,7 @@ hr {
 </head>
 <body>
 `
-CENTRALIZED_WARNING_BANNER = `<div id="centralizedwarning" style="width: 90%; text-align: center; background:  #FF7955 ; margin: auto; padding: 10px;"> <b> You are currently viewing ethblog through a centralized proxy node.</b><br><br>To load this post from the blockchain, <a href="https://docs.alchemy.com/docs/how-to-install-a-web3-wallet">install a web3-enabled wallet</a> and refresh the page. </div>`
+CENTRALIZED_WARNING_BANNER = `<div id="centralizedwarning" style="width: 90%; text-align: center; background:  #FF7955 ; margin: auto; padding: 10px;"> <b>You are currently viewing ethblog through a public Ethereum RPC endpoint.</b><br><br>To read directly through your own wallet provider, <a href="https://support.metamask.io/start/getting-started-with-metamask/">install a web3-enabled wallet</a> and refresh the page.</div>`
 
 // some boilerpate for title subscript and footer
 ethblog_SUB = `<i class="subtext"> musings powered by <a href="https://github.com/pdaian/ethblog/">ethblog</a> and stored respecting your freedoms, forever* with the iron-clad guarantees of L1 </i>`
@@ -89,17 +89,38 @@ async function eth_call(contract_address, hex_data) {
     }
 }
 
-// centralized fallback for the above
-async function http_call(address, slug, unpack_array) {
-    // for some reason when you specify a return you get a json array so we must handle that
-    var result = await fetch("https://" + address + "." + CENTRALIZED_NODE + "/" + slug);
-    if (result.status != 200) {
-        document.getRootNode().getRootNode().body.innerHTML = "<b>There was an error calling the contract; make sure your node is up and the contract is a valid EthBlog contract, and that the post you are trying to access exists.</b><br><br>To see examples of how to load an ethblog, <a href='//github.com/pdaian/ethblog/blob/main/README.md'>read our docs</a>.<br><br>Error message: HTTP request returned status " + result.status;
+// RPC fallback for the above
+async function rpc_call(contract_address, hex_data) {
+    const payload = {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "eth_call",
+        params: [
+            {
+                to: contract_address,
+                data: hex_data
+            },
+            "latest"
+        ]
+    };
+
+    try {
+        const response = await fetch(RPC_URL, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(payload)
+        });
+        const result = await response.json();
+        if (!response.ok || result.error || typeof result.result !== "string") {
+            throw new Error(result.error ? result.error.message : ("HTTP request returned status " + response.status));
+        }
+        return result.result;
+    } catch (error) {
+        document.getRootNode().getRootNode().body.innerHTML = "<b>There was an error calling the contract; make sure your RPC endpoint is up, the contract is a valid EthBlog contract, and that the post you are trying to access exists.</b><br><br>To see examples of how to load an ethblog, <a href='//github.com/pdaian/ethblog/blob/main/README.md'>read our docs</a>.<br><br>Error message: " + error;
         has_errored = true;
-        return;
     }
-    if (unpack_array) return (await result.json())[0];
-    return await result.text();
 }
 
 // check address format, ignoring checksum (later queries will fail anyway)
@@ -154,29 +175,25 @@ function decode_string(value) {
 
 // minimal contract interaction functions, hard-coded function selectors (check em yourself!)
 async function get_num_blog_posts(address) {
-    var result = has_web3 ? await eth_call(address, "0x51df1253") : await http_call(address, "getNumPosts?returns=(uint256)", true);
+    var result = has_web3 ? await eth_call(address, "0x51df1253") : await rpc_call(address, "0x51df1253");
+    if (!result) return 0;
     return decode_int(result);
 }
 
 
 async function get_post_html(address, num_post) {
-    if (has_web3) {
-        var post = await eth_call(address, "0x40731c24" + encode_int(num_post));
-        if (post.length < 131) return ""; // empty post
-        post = decode_string("0x" + post.slice(130));
-    }
-    else
-        var post = await http_call(address, "getPost/" + num_post, false)
+    var post = has_web3 ? await eth_call(address, "0x40731c24" + encode_int(num_post)) : await rpc_call(address, "0x40731c24" + encode_int(num_post));
+    if (!post) return "";
+    if (post.length < 131) return ""; // empty post
+    post = decode_string("0x" + post.slice(130));
     post = parsed_markdown(escape_html(post));
     return post.replaceAll("\n", "<br>");
 }
 
 async function get_title(address) {
-    if (has_web3) {
-        var title = await eth_call(address, "0x4a79d50c");
-        return decode_string("0x" + title.slice(130));
-    }
-    return await http_call(address, "title", false);
+    var title = has_web3 ? await eth_call(address, "0x4a79d50c") : await rpc_call(address, "0x4a79d50c");
+    if (!title || title.length < 131) return "";
+    return decode_string("0x" + title.slice(130));
 }
 
 function getAnchor() {
@@ -202,9 +219,9 @@ async function run() {
     // connect to injected ethereum, confirm existence or error
     if (typeof ethereum !== 'undefined') {
         alert("We have detected a web3 wallet. You may be asked to unlock it to read this blog from the chain, this is normal.\n\nTHIS BLOG WILL NEVER ASK YOU TO SIGN ANY TRANSACTIONS.\n\nYou should never sign any transactions from an unknown source.");
-        var address = await ethereum.enable();
+        var accounts = await ethereum.request({ method: 'eth_requestAccounts' });
         has_web3 = true;
-        if (!Array.isArray(address) || !is_address_valid(address)) {
+        if (!Array.isArray(accounts) || accounts.length === 0 || !is_address_valid(accounts[0])) {
             alert('Ethereum wallet handshake failed! Make sure you are logged into your wallet');
             has_web3 = false;
         }
